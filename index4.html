@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<head>
+    <title>Relationship Stages by Decade</title>
+    <link rel="stylesheet" href="style/style.css" type="text/css" media="screen" />
+	<link rel="stylesheet" type="text/css" href="//cloud.typography.com/7626174/696048/css/fonts.css" />
+    <style type="text/css">@font-face {font-family:Inconsolata;font-style:normal;font-weight:400;src:url(/cf-fonts/s/inconsolata/5.0.16/latin-ext/400/normal.woff2);unicode-range:U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20CF,U+2113,U+2C60-2C7F,U+A720-A7FF;font-display:swap;}@font-face {font-family:Inconsolata;font-style:normal;font-weight:400;src:url(/cf-fonts/s/inconsolata/5.0.16/latin/400/normal.woff2);unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;font-display:swap;}@font-face {font-family:Inconsolata;font-style:normal;font-weight:400;src:url(/cf-fonts/s/inconsolata/5.0.16/vietnamese/400/normal.woff2);unicode-range:U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;font-display:swap;}</style>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<meta charset="utf-8">
+<style>
+
+.node {
+  stroke-width: 1.5px;
+}
+
+</style>
+<body>
+<div id="main-wrapper">
+	<div id="sidebar">
+        <div>
+		    <div id="current_time">0 months</div>
+		</div>
+        
+	    <div id="speed">
+	        <div class="togglebutton pause" data-val="pause">Pause</div>
+			<div class="togglebutton slow current" data-val="slow">Slow</div>
+	        <div class="togglebutton fast" data-val="fast">Fast</div>
+			<div class="clr"></div>
+	    </div>
+        
+        <div class="centered" id="resetbutton">(<a>Start Over</a>)</div>
+		<div class="clr"></div>
+        
+		<div id="note"></div>
+		
+		
+	</div>
+	<div id="chart"></div>
+	
+	<div class="clr"></div>
+</div>
+	
+
+	
+<script src="js/d3-3-5-5.min.js"></script>
+<script src="js/pym.min.js"></script>
+
+<script>
+var USER_SPEED = "slow";
+
+var speeds = { "slow": 1000, "medium": 400, "fast": 100 };
+var simtimer;
+
+var margin = {top: 90, right: 0, bottom: 0, left: 170};
+var width = parseInt(d3.select("#chart").style('width'), 10); 
+
+var maxRadius = width < 500 ? 3 : 4.5,
+    height = (width < 500 ? 400 : 660) - margin.top - margin.bottom;
+    margin.left = width < 500 ? 60 : 160;
+width = width - margin.left - margin.right;
+var padding = 2;
+    
+
+
+	
+var sched_objs = [],
+	curr_index = -1;
+
+
+// var foci = {
+//     "met" : { x: x(1), y: y(1), grp: "met" },
+//     "romantic" : { x: x(2), y: y(1), grp: "romantic" },
+//     "lived" : { x: x(3), y: y(1), grp: "lived" },
+//     "married" : { x: x(4), y: y(1), grp: "married" },
+// }
+
+
+var grpcnts = {
+    met: { '1960': 0, '1970': 0, '2010': 0, label: "First Met", x: 1, y: 1 },
+    romantic: { '1960': 0, '1970': 0, '2010': 0, label: "Romantic", x: 2, y: 1 },
+    lived: { '1960': 0, '1970': 0, '2010': 0, label: "Live Together", x: 3, y: 1 },
+    married: { '1960': 0, '1970': 0, '2010': 0, label: "Married", x: 4, y: 3 },
+}
+
+
+var x = d3.scale.ordinal()
+    .domain([1950, 1970, 1980, 2010])
+    .rangeBands([0, width]);
+
+var y = d3.scale.ordinal()
+    .domain(d3.keys(grpcnts))
+    .rangeBands([height, 0]);
+
+    console.log(d3.keys(grpcnts));
+    console.log('met ' + y('met'));
+    console.log('lived ' + y('lived'));
+    console.log('romantic ' + y('romantic'));
+
+// Start the SVG
+var svg = d3.select("#chart").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+
+// Load data and let's do it.
+d3.tsv("data/timelines.tsv", function(error, data) {	
+	
+	data.forEach(function(d) {
+		var day_array = d.timeline.split(",");
+		var activities = [];
+		for (var i=0; i < day_array.length; i++) {
+			// Duration
+			if (i % 2 == 1) {
+				activities.push({'act': day_array[i-1], 'duration': +day_array[i]});
+			}
+		}
+		sched_objs.push(activities);
+	});
+	
+	
+	// A node for each person's schedule
+	var nodes = sched_objs.map(function(o,i) {
+		
+        var act = o[0].act;
+		var init_x = x(+data[i].decade) + Math.random();
+		var init_y = y('met') + Math.random();
+        var col = "#cccccc";
+        
+        grpcnts[act][data[i].decade] += 1;
+        // grpcnts['met'][data[i].decade] += 1;
+        
+		return {
+            act: act,
+            // act: 'met',
+			radius: maxRadius,
+			x: init_x,
+			y: init_y,
+            decade: data[i].decade,
+			color: color(act),
+            married: false,
+			moves: 0,
+            // next_move_time: 0,
+            next_move_time: o[0].duration,
+			sched: o,
+		}
+	});
+
+
+    // Separator line.
+    svg.append("line")
+        .attr("class", "separator")
+        .attr("x1", (x("2010")+x("1970")) / 2)
+        .attr("x2", (x("2010")+x("1970")) / 2)
+        .attr("y1", -margin.top+20)
+        .attr("y2", height);
+    
+
+	var force = d3.layout.force()
+		.nodes(nodes)
+		.size([width, height])
+		// .links([])
+		.gravity(0)
+		.charge(0)
+		.friction(.9)
+		.on("tick", tick)
+		.start();
+
+	var circle = svg.selectAll("circle")
+		.data(nodes)
+      .enter().append("circle")
+        .style("fill", function(d) { return d.color; });
+	circle.transition()
+        .duration(500)
+	    .delay(function(d,i) { return i * 5; })
+	    .attrTween("r", function(d) {
+		    var i = d3.interpolate(0, d.radius);
+		    return function(t) { return d.radius = i(t); };
+	    })
+        // .attr("r", function(d) { return d.radius; });
+		// .call(force.drag);
+	
+    
+    var yearlabel = svg.selectAll("text.decade")
+        .data([1970, 2010])
+      .enter().append("text")
+        .attr('class', 'decade')
+        .attr('x', d => x(d))
+        .attr('y', -margin.top)
+        .attr('dy', '1.8em')
+        .attr("text-anchor", "middle")
+        .text(d => d + "s");
+        
+    
+	// Activity group labels
+    var actlabel = svg.selectAll("text.actlabel")
+        .data(d3.keys(grpcnts))
+      .enter().append("text")
+        .attr("class", "actlabel")
+        .attr("text-anchor", "left")
+        .attr("y", d => y(d))
+        .attr("x", -margin.left)
+        // .attr("dy", ".1em")
+        // .attr("dy", "1.8em")
+        .text(d => grpcnts[d].label)
+        // .call(wrap, width/4);
+		
+    // Counter labels
+    var fcntlabel = svg.selectAll(".fcntlabel")
+        .data(d3.keys(grpcnts))
+      .enter().append("g")
+        .attr("class", "fcntlabel")
+        .attr("transform", d => "translate("+(x('1970'))+","+y(d)+")");
+    fcntlabel.append("text")
+        .attr("class", "cnt")
+        .attr("text-anchor", "middle")
+        // .attr("dy", ".2em")
+        .text(d => d == 'met' ? "100%" : "0%");
+
+    // 2010s
+    var mcntlabel = svg.selectAll(".mcntlabel")
+        .data(d3.keys(grpcnts))
+      .enter().append("g")
+        .attr("class", "mcntlabel")
+        .attr("transform", d => "translate("+(x('2010'))+","+y(d)+")");
+    mcntlabel.append("text")
+        .attr("class", "cnt")
+        .attr("text-anchor", "middle")
+        // .attr("dy", ".2em")
+        .text(d => d == 'met' ? "100%" : "0%");
+    
+            
+    
+    var pymChild = new pym.Child();
+    
+        
+        
+
+	// Update nodes based on activity and duration
+	function timer() {
+        
+        if (curr_index < 0) {
+            fcntlabel.selectAll("text.cnt").text(d => d == "met" ? "100%" : "0%");
+            mcntlabel.selectAll("text.cnt").text(d => d == "met" ? "100%" : "0%");
+        }
+        
+        else {
+            
+    		d3.range(nodes.length).map(function(i) {
+
+    			// Time to go to next activity
+    			if (nodes[i].next_move_time == curr_index) {
+    				if (nodes[i].moves == nodes[i].sched.length-1) {
+    					nodes[i].moves = 0;
+    				} else {
+    					nodes[i].moves += 1;
+    				}
+			
+    				// Subtract from current group count
+                    grpcnts[ nodes[i].act ][nodes[i].decade] -= 1;
+			
+    				// Move on to next activity
+                    nodes[i].act = nodes[i].sched[ nodes[i].moves ].act;
+			
+    				// Add to new group count
+                    grpcnts[ nodes[i].act ][nodes[i].decade] += 1;
+						
+                    nodes[i].next_move_time += nodes[i].sched[ nodes[i].moves ].duration + 1;
+    			}
+
+    		});
+            
+            fcntlabel.selectAll("text.cnt")
+                .text(d => readablePercent(grpcnts[d]['1970'], 250));
+            mcntlabel.selectAll("text.cnt")
+                .text(d => readablePercent(grpcnts[d]['2010'], 250));
+            
+        }
+        
+        
+    	force.resume();
+    	curr_index += 1;
+    
+		// Update time
+        // var true_minute = curr_index % 1440;
+        // d3.select("#current_time").text(minutesToTime(true_minute));
+        d3.select("#current_time").text(indexToTime(curr_index));
+        
+        if (grpcnts['married']['1970'] == 250 && grpcnts['married']['2010'] == 250) {
+            setTimeout(reset, 5000);
+        }
+        
+		else if (USER_SPEED != "pause") {
+		    simtimer = setTimeout(timer, speeds[USER_SPEED]);
+		}
+	}
+
+    // setTimeout(timer, speeds[USER_SPEED]);
+	
+    simtimer = setTimeout(timer, 5000);
+    
+    // timer();
+	
+	
+		
+	function tick(e) {
+	  var k = 0.03 * e.alpha;
+  
+	  // Push nodes toward their designated focus.
+	  nodes.forEach(function(o, i) {
+		var curr_act = o.act;
+		
+		// Speed of movement change based on user speed.
+        if (USER_SPEED == "slow") var damper = .85;
+        else var damper = 1;
+        
+        
+        o.x += (x(+o.decade) - o.x) * k * damper;
+        
+        // If starting at the beginning.
+        if (curr_index < 0) {
+            o.y += (y('met') - o.y) * k * damper;
+            o.color = color('met');
+        } 
+        
+        // Already started.
+        else {
+            o.y += (y(curr_act) - o.y) * k * damper;
+            o.color = color(curr_act);
+        }
+        
+	  });
+
+	  circle
+	  	  .each(collide(.5))
+          .style("fill", function(d) { return d.color; })
+	      .attr("cx", function(d) { return d.x; })
+	      .attr("cy", function(d) { return d.y; });
+	}
+
+
+	// Resolve collisions between nodes.
+	function collide(alpha) {
+	  var quadtree = d3.geom.quadtree(nodes);
+	  return function(d) {
+	    var r = d.radius + maxRadius + padding,
+	        nx1 = d.x - r,
+	        nx2 = d.x + r,
+	        ny1 = d.y - r,
+	        ny2 = d.y + r;
+	    quadtree.visit(function(quad, x1, y1, x2, y2) {
+	      if (quad.point && (quad.point !== d)) {
+	        var x = d.x - quad.point.x,
+	            y = d.y - quad.point.y,
+	            l = Math.sqrt(x * x + y * y),
+	            r = d.radius + quad.point.radius + (d.act !== quad.point.act) * padding;
+	        if (l < r) {
+	          l = (l - r) / l * alpha;
+	          d.x -= x *= l;
+	          d.y -= y *= l;
+	          quad.point.x += x;
+	          quad.point.y += y;
+	        }
+	      }
+	      return x1 > nx2 || x2 < nx1 || y1 > ny2 || y2 < ny1;
+	    });
+	  };
+	}
+	
+	
+	
+	
+	// Speed toggle
+	d3.selectAll(".togglebutton")
+      .on("click", function() {
+        if (d3.select(this).attr("data-val") == "pause") {
+            d3.select(".pause").classed("current", true);
+			d3.select(".slow").classed("current", false);
+            d3.select(".fast").classed("current", false);
+        } else if (d3.select(this).attr("data-val") == "slow") {
+            d3.select(".pause").classed("current", false);
+			d3.select(".slow").classed("current", true);
+            d3.select(".fast").classed("current", false);
+        } else {
+            d3.select(".pause").classed("current", false);
+			d3.select(".slow").classed("current", false);
+			d3.select(".fast").classed("current", true);
+        }
+		
+        force.resume();
+        clearTimeout(simtimer);
+		USER_SPEED = d3.select(this).attr("data-val");
+        
+        if (USER_SPEED != "pause") timer();
+    });
+    
+    
+    d3.select("#resetbutton a").on("click", function() { reset(); });
+    
+    
+    
+    // Reset.
+    function reset() {
+        
+        console.log('reset!');
+        
+        clearTimeout(simtimer);
+        USER_SPEED = "fast";
+        
+        // Reset counts.
+        curr_index = -1;
+        d3.select("#current_time").text(indexToTime(0));
+        d3.keys(grpcnts).forEach(function(d,i) {
+            grpcnts[d]['1970'] = 0;
+            grpcnts[d]['2010'] = 0;
+        });
+        
+        // Reset the nodes.
+        d3.range(nodes.length).map(function(i) {
+            
+            nodes[i].act = nodes[i].sched[0].act;
+            grpcnts[nodes[i].act][nodes[i].decade] += 1;
+            // nodes[i].act = 'met';
+            // grpcnts['met'][nodes[i].decade] += 1;
+            nodes[i].moves = 0;
+            nodes[i].next_move_time = nodes[i].sched[0].duration;
+            
+        });
+        
+        
+        // TODO: Reset the counters.
+        fcntlabel.selectAll("text.cnt").text(d => d == "met" ? "100%" : "0%");
+        mcntlabel.selectAll("text.cnt").text(d => d == "met" ? "100%" : "0%");
+        
+        
+        
+        // Restart the animation.
+        force.resume();
+        USER_SPEED = d3.select("#speed .togglebutton.current").attr("data-val");
+        
+        if (USER_SPEED != 'pause') {
+            simtimer = setTimeout(timer, 3000);
+        } else {
+            // force.resume();
+        }
+        
+        
+    }
+    
+    
+    
+}); // @end d3.tsv
+
+
+
+function color(activity) {
+	
+	var colorByActivity = {
+        'met': '#faf88e',
+        'romantic': '#b8e9a4',
+        'lived': '#8ad3ba',
+        'married': '#6fb9d0',
+    }
+	
+	return colorByActivity[activity];
+	
+}
+
+
+
+// Output readable percent based on count.
+function readablePercent(n, total) {
+	
+	var pct = 100 * n / total;
+	if (pct < 1 && pct > 0) {
+		pct = "1%";
+	} else {
+		pct = Math.round(pct) + "%";
+	}
+	
+	return pct;
+}
+
+
+// Minutes to time of day. Data is minutes from 4am.
+function minutesToTime(m) {
+	var minutes = (m + 4*60) % 1440;
+	var hh = Math.floor(minutes / 60);
+	var ampm;
+	if (hh > 12) {
+		hh = hh - 12;
+		ampm = "pm";
+	} else if (hh == 12) {
+		ampm = "pm";
+	} else if (hh == 0) {
+		hh = 12;
+		ampm = "am";
+	} else {
+		ampm = "am";
+	}
+	var mm = minutes % 60;
+	if (mm < 10) {
+		mm = "0" + mm;
+	}
+	
+	return hh + ":" + mm + ampm
+}
+
+
+
+function indexToTime(i) {
+    
+    var months = i % 12;
+    var years = Math.floor(i / 12);
+    
+    var time_string = '';
+    
+    if (years == 1) {
+        time_string += years + " year";
+    } else if (years > 1) {
+        time_string += years + " years";
+    }
+    
+    if (years > 0) {
+        time_string += ", ";
+    }
+    
+    if (months == 1) {
+        time_string += "1 month";
+    } else {
+        time_string += months += " months";
+    }
+    
+    return time_string;
+}
+
+
+
+
+
+
+// For SVG text-wrapping
+function wrap(text, width) {
+  text.each(function() {
+    var text = d3.select(this),
+        words = text.text().split(/\s+/).reverse(),
+        word,
+        line = [],
+        lineNumber = 0,
+        lineHeight = 1.1, // ems
+        x = text.attr("x"),
+        y = text.attr("y"),
+        dy = parseFloat(text.attr("dy")),
+        tspan = text.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+    while (word = words.pop()) {
+      line.push(word);
+      tspan.text(line.join(" "));
+      if (tspan.node().getComputedTextLength() > width) {
+        line.pop();
+        tspan.text(line.join(" "));
+        line = [word];
+        tspan = text.append("tspan").attr("x", x).attr("y", y).attr("dy", ++lineNumber * lineHeight + dy + "em").text(word);
+      }
+    }
+  });
+}
+</script>
